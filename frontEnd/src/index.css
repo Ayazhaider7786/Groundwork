@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/*
+  Semantic design tokens.
+
+  Components reference token names only — bg-surface, text-ink, border-line,
+  bg-brand — never raw colour utilities like gray-500, and never a `dark:`
+  variant. The light and dark palettes are defined here and nowhere else, so
+  re-skinning the whole app is an edit to this file alone.
+*/
+:root {
+  --surface: #ffffff;
+  --surface-raised: #f8fafc;
+  --surface-sunken: #f1f5f9;
+
+  --ink: #0f172a;
+  --ink-soft: #334155;
+  --muted: #64748b;
+
+  --line: #e2e8f0;
+
+  --brand: #4f46e5;
+  --brand-strong: #4338ca;
+  --brand-soft: #eef2ff;
+  --on-brand: #ffffff;
+
+  --success: #15803d;
+  --success-soft: #dcfce7;
+
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #0f172a;
+    --surface-raised: #1e293b;
+    --surface-sunken: #020617;
+
+    --ink: #e2e8f0;
+    --ink-soft: #cbd5e1;
+    --muted: #94a3b8;
+
+    --line: #334155;
+
+    --brand: #818cf8;
+    --brand-strong: #a5b4fc;
+    --brand-soft: #1e1b4b;
+    --on-brand: #0f172a;
+
+    --success: #4ade80;
+    --success-soft: #052e16;
+
+    --danger: #f87171;
+    --danger-soft: #450a0a;
+
+    --warning: #fbbf24;
+    --warning-soft: #451a03;
+  }
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+
+  --color-line: var(--line);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+}
+
+html {
+  /* Lets native form controls and scrollbars follow the active palette. */
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--surface-sunken);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

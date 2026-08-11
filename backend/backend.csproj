@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- 1591 = missing XML comment. The docs file exists only so Swagger can read
+         the <summary> tags we do write; it must not force one on every member. -->
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <UserSecretsId>373bfe13-273a-41c8-bb63-f4370c6fecd3</UserSecretsId>
+  </PropertyGroup>
+
+  <!-- The class libraries live inside this project's folder, so the SDK's default
+       **/*.cs glob would compile their sources into this assembly as well, producing
+       duplicate type errors. Exclude them; they arrive via ProjectReference instead. -->
+  <ItemGroup>
+    <Compile Remove="backend.Data\**;backend.Services\**;backend.SeedData\**" />
+    <Content Remove="backend.Data\**;backend.Services\**;backend.SeedData\**" />
+    <None Remove="backend.Data\**;backend.Services\**;backend.SeedData\**" />
+    <EmbeddedResource Remove="backend.Data\**;backend.Services\**;backend.SeedData\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="backend.Services\backend.Services.csproj" />
+    <ProjectReference Include="backend.SeedData\backend.SeedData.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
+    <PackageReference Include="Mapster" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+  </ItemGroup>
+
+</Project>

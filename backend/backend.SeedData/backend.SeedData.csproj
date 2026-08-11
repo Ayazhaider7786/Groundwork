@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Seeders drive UserManager/RoleManager and read bound options, both of which
+       come from the shared framework rather than a standalone package. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\backend.Data\backend.Data.csproj" />
+    <ProjectReference Include="..\backend.Services\backend.Services.csproj" />
+  </ItemGroup>
+
+</Project>

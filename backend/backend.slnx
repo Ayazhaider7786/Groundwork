@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="backend.csproj" />
+  <Project Path="backend.Data/backend.Data.csproj" />
+  <Project Path="backend.SeedData/backend.SeedData.csproj" />
+  <Project Path="backend.Services/backend.Services.csproj" />
+</Solution>
