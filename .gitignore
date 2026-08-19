@@ -361,3 +361,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Locally stored uploads. FileStorage:Local:RootPath points here by default;
+# user files must never end up in the repository.
+backend/App_Data/

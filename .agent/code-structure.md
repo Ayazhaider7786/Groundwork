@@ -115,8 +115,10 @@ them yet, but when the need arises they go exactly here, with these names:
 |---|---|
 | `backend/Mapping/WebApiMappingConfig.cs` | The first Request → Service Model or Service Model → Response mapping needs custom rules |
 | `backend/Workers/` | The first `BackgroundService` is added — see **Background Workers** |
-| `backend.Data/Enums/` | The first enum is added — see **Enums** |
 | `frontEnd/src/components/modals/` | The first modal is added |
+
+`backend.Data/Enums/` was on this list until the file upload service added
+`FileStorageProvider`; it now exists — see **Enums**.
 
 > **Consequence of nesting.** Because the libraries sit inside the Web API's own
 > folder, the SDK's default `**/*.cs` glob would compile their sources into
@@ -156,10 +158,11 @@ The backend that exists today, and which every convention below is already appli
 |---|---|
 | Auth | `Controllers/AuthController.cs`, `backend.Services/Services/Auth/{AuthService,JwtTokenService,CurrentUserProvider}.cs` |
 | Seed data helper | `Controllers/SeedDataController.cs`, `backend.Services/Services/SeedData/SeedDataService.cs` |
+| File uploads | `Controllers/FilesController.cs`, `backend.Services/Services/Files/{FileUploadService,IFileStorage,LocalFileStorage}.cs`, `backend.Services/Common/FileUploadLocation.cs` — see **File Uploads** |
 | Entities | `ApplicationUser`, `ApplicationRole`, `RefreshToken`, plus `Entities/Common/` (`IAuditableEntity`, `ISoftDeletable`, `AuditableEntity`) |
 | Seeders | `backend.SeedData/{DatabaseSeeder,Seeders/RoleSeeder,Seeders/UserSeeder}.cs` |
-| Shared plumbing | `RoleNames`, `ICurrentUserProvider`, `PagedResult<T>`, `PagedResultResponse<T>`, `PaginationParams`, `PaginationExtensions` |
-| Migrations | One `InitialIdentity` migration covering the Identity tables and `RefreshToken` |
+| Shared plumbing | `RoleNames`, `FileUploadLocation`, `ICurrentUserProvider`, `PagedResult<T>`, `PagedResultResponse<T>`, `PaginationParams`, `PaginationExtensions` |
+| Migrations | One `InitialIdentity` migration covering the Identity tables and `RefreshToken`. File uploads add none — they own no table |
 
 Everything else described in this document is a convention for code you are about
 to write.
@@ -383,7 +386,7 @@ the other. Three folders, three answers to "where does this go?":
 | A data class used by more than one feature | `Model/Common/` |
 | Neither — an extension method or shared helper | `Common/` |
 
-**Existing feature folders:** `Auth/`, `SeedData/`. Add one per feature.
+**Existing feature folders:** `Auth/`, `SeedData/`, `Files/`. Add one per feature.
 
 **Examples:**
 - `backend.Services/Services/Auth/AuthService.cs`
@@ -425,6 +428,13 @@ backend.Services/
       LoginModel.cs
       RegisterModel.cs
       UserModel.cs
+    Files/
+      FileDownloadModel.cs
+      FileStorageOptions.cs
+      FileUploadModel.cs
+      FileUploadResult.cs
+      LocalFileStorageOptions.cs
+      StoredFileModel.cs
     SeedData/
       SeedDataOptions.cs
       SeedUserModel.cs
@@ -866,7 +876,11 @@ if (order.Status == OrderStatus.Draft)
 ```
 
 - Applies equally to entity fields, service models, and request/response models — not just database columns.
-- The **only** exception is ASP.NET Identity role names, which attributes force to be `const string` — handled by `RoleNames` above.
+- There are exactly **two** sanctioned exceptions, both handled by a constants class with an `All` list rather than bare literals:
+  - **Identity role names** (`RoleNames`) — `[Authorize(Roles = ...)]` forces a `const string`.
+  - **Upload locations** (`FileUploadLocation`) — the value is a directory name on disk, so the string is the stored artefact rather than a label for one. See **File Uploads**.
+
+  Both recover the lost compile-time safety through a runtime membership check against `All`. Anything that is neither an attribute argument nor a path segment is an enum.
 - This is a one-way door in the other direction too: never *add* a `string`-typed status/type field later "for flexibility" — extend the enum instead, even if it means a migration.
 
 ### DbContext
@@ -1446,6 +1460,225 @@ follows the same layering discipline.
 - **Honour the `CancellationToken`** — pass it to every async call and to `Task.Delay`, so shutdown is prompt.
 - **Workers do not talk to each other.** State changes are written to the database by one service and picked up by the next worker.
 - Workers are registered with `AddHostedService<T>()` in `Program.cs`, and each one is individually switchable via configuration so a developer can run the API without them.
+
+---
+
+## File Uploads
+
+Uploading is a shared service, not something a feature implements for itself. Bytes
+go to a storage provider; the **storage key** that comes back is the only thing any
+other part of the system ever holds.
+
+### The pieces
+
+| File | Role |
+|---|---|
+| `backend.Services/Common/FileUploadLocation.cs` | The upload locations, as constants. One entry per feature that uploads |
+| `backend.Services/Services/Files/FileUploadService.cs` | `IFileUploadService` + implementation. Owns every rule — ownership, location, size, extension |
+| `backend.Services/Services/Files/IFileStorage.cs` | Where bytes physically live. The extension point |
+| `backend.Services/Services/Files/LocalFileStorage.cs` | The one implementation today: the server's own disk |
+| `backend.Services/Model/Files/` | `FileUploadModel`, `FileUploadResult`, `StoredFileModel`, `FileDownloadModel`, `FileStorageOptions`, `LocalFileStorageOptions` |
+| `backend/Controllers/FilesController.cs` | `POST upload`, `GET download`, `DELETE` |
+| `backend.Data/Enums/FileStorageProvider.cs` | `Local`, `Azure` — which provider is configured |
+
+`IFileStorage` is the **one interface in the solution that gets its own file** rather
+than sharing one with its implementation (see **Services**). It has more than one
+implementation and so belongs to none of them. Do not take this as licence to split
+other interfaces out.
+
+### The storage key is the whole contract
+
+```
+App_Data/Upload/8f9b3599-…-4636e5930ea6/Profile/bcd95f0c63734f3cbfc08e0da43aab61.png
+       └─root─┘└──────── UserId ────────┘└Location┘└──── generated file name ────┘
+        │       │                          │         │
+        │       │                          │         └ generated GUID + the original extension
+        │       │                          └ a FileUploadLocation constant
+        │       └ taken from the token, never from the caller
+        └ FileStorage:Local:RootPath — keep it outside wwwroot
+```
+
+The key returned by an upload is `Upload/{userId}/{location}/{file}` — a
+provider-independent path, never an absolute one and never a blob URL. That is what
+makes a provider switch invisible: the same string resolves under a disk root or
+inside a container.
+
+**The file name is generated, never the uploaded one.** A user-supplied name can be
+a path; a GUID cannot. The original name is returned for display only.
+
+### Using it — the normal flow
+
+The client uploads first, then sends the returned key to the feature endpoint that
+owns it:
+
+```
+POST /api/files/upload?location=Profile   →  { "storageKey": "Upload/…/Profile/….png", … }
+PUT  /api/profile                          →  { "profileImagePath": "Upload/…/Profile/….png" }
+```
+
+The feature stores that string on its own entity. **`Files` owns no table** — there
+is no `UploadedFile` entity and no migration for uploads themselves. The column
+lives wherever the file logically belongs:
+
+```csharp
+public class ApplicationUser : IdentityUser<Guid>, IAuditableEntity, ISoftDeletable
+{
+    /// <summary>Storage key from the upload service, or null when no picture is set.</summary>
+    public string? ProfileImagePath { get; set; }
+}
+```
+
+Adding that column **does** need a migration — see **Migrations**; the developer runs it.
+
+### Using it — from another service
+
+A service that needs to store a file as part of a larger operation injects
+`IFileUploadService` and passes the location constant:
+
+```csharp
+public class ProfileService(
+    IFileUploadService fileUploadService,
+    ApplicationDbContext dbContext,
+    ICurrentUserProvider currentUserProvider) : IProfileService
+{
+    public async Task<ProfileResult> SetPictureAsync(FileUploadModel picture, CancellationToken cancellationToken = default)
+    {
+        var upload = await fileUploadService.UploadAsync(picture, FileUploadLocation.Profile, cancellationToken);
+
+        if (!upload.Succeeded)
+        {
+            return ProfileResult.Fail([.. upload.Errors]);
+        }
+
+        var user = await dbContext.Users
+            .SingleOrDefaultAsync(candidate => candidate.Id == currentUserProvider.UserId, cancellationToken);
+
+        if (user is null)
+        {
+            return ProfileResult.Fail("The account no longer exists.");
+        }
+
+        // Replacing a picture must remove the old bytes, or every change leaks a file
+        // nothing points at any more.
+        if (!string.IsNullOrWhiteSpace(user.ProfileImagePath))
+        {
+            await fileUploadService.DeleteAsync(user.ProfileImagePath, cancellationToken);
+        }
+
+        user.ProfileImagePath = upload.File!.StorageKey;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return ProfileResult.Success(upload.File.StorageKey);
+    }
+}
+```
+
+`UploadAsync` returns a `FileUploadResult` rather than throwing, because an upload
+fails for several distinct reasons at once — see **Result Object Pattern**. Relay
+`Errors`; do not flatten them to a bare 400.
+
+### Adding an upload location
+
+One line, plus the `All` entry:
+
+```csharp
+public static class FileUploadLocation
+{
+    public const string RootFolder = "Upload";
+
+    public const string Profile = "Profile";
+
+    public const string Attachment = "Attachment";   // ← new
+
+    public static readonly IReadOnlyList<string> All = [Profile, Attachment];   // ← and here
+}
+```
+
+Forgetting `All` means the service rejects every upload to the new location, which is
+the safe direction to fail but easy to misread as a broken endpoint.
+
+**These values are persisted data.** Renaming one orphans every file already stored
+under the old value — the saved paths keep pointing at a folder nothing reads any
+more. Add freely; rename only by moving the folders to match.
+
+> **Why strings and not an enum.** This is a deliberate, named exception to
+> **Never Use Magic Strings for Status/Category Fields** — the second one in the
+> codebase, alongside `RoleNames`. The value *is* a directory name on disk, so the
+> string is the stored artefact rather than a label for one, and `All` plus the
+> service's membership check recover the safety the compiler would otherwise give.
+> Do not extend this exception to anything that is not a path segment.
+
+### Adding a storage provider
+
+1. Write `AzureFileStorage : IFileStorage` in `backend.Services/Services/Files/`.
+2. Add an `Azure` object beside `Local` in the `FileStorage` configuration section, bound by a new `AzureFileStorageOptions` in `backend.Services/Model/Files/`.
+3. Add one arm to the `switch` in `Program.cs`.
+
+Nothing that consumes `IFileUploadService` changes. Selecting a provider with no
+implementation throws **at startup**, naming the file to write — not at the first
+upload in production.
+
+Implementations handle bytes only. Size limits, extension whitelists and ownership
+stay in `FileUploadService`, so every provider enforces them identically and a new
+provider cannot forget one.
+
+### Rules
+
+- **Persist the storage key, never a filesystem path or a URL.** A path ties the row to one provider and one machine.
+- **Never build a key by hand.** `Upload/{user}/{location}/…` is composed in exactly one method. A key that did not come from `UploadAsync` is not a key.
+- **Never parse a key to decide anything** — least of all ownership. See below.
+- **The content type served back is derived from the whitelisted extension**, never from the client's declared type. A browser acts on that value, so the uploader must not choose it.
+- **Downloads are `Content-Disposition: attachment` with `X-Content-Type-Options: nosniff`.** Serving inline is a per-endpoint decision to be taken deliberately, not a default.
+- **`.svg` is not whitelisted.** An SVG is a document that can carry script; allowing it means hosting attacker-authored script on the API's own origin the moment anything is served inline.
+- **`FileStorage:Local:RootPath` stays outside `wwwroot`.** Static file middleware serves whatever it can reach, which would hand out other users' uploads without ever consulting the ownership check.
+- **Deleting the owning row must delete the file.** Nothing sweeps orphans; a soft-deleted row still holds the only reference to those bytes.
+
+### The ownership check — shape, not scan
+
+There is no database row behind an upload, so authorisation reads the key itself.
+That is only safe because the key's **whole shape** is validated:
+
+```csharp
+var segments = storageKey.Split(['/', '\\']);
+
+return segments.Length == StorageKeySegmentCount
+    && string.Equals(segments[0], FileUploadLocation.RootFolder, StringComparison.Ordinal)
+    && Guid.TryParse(segments[1], out var ownerId)
+    && ownerId == userId.Value
+    && FileUploadLocation.All.Contains(segments[2], StringComparer.Ordinal)
+    && IsSafeFileName(segments[3]);
+```
+
+Reading the user id out of segment 1 and stopping there is the obvious
+implementation, and it is broken:
+
+```
+❌ Upload/{mine}/Profile/../../{theirs}/Profile/x.png
+```
+
+Segment 1 really is the caller's own id, so a scan-style check passes it. The
+provider then calls `Path.GetFullPath`, which collapses the `..` and lands inside
+another user's folder — still under the storage root, so the provider's own
+"did it escape the root?" check sees nothing wrong either. Both guards pass and
+another user's file is served or deleted.
+
+Demanding exactly four segments, splitting on **both** separators and **keeping
+empty entries** means a `..`, a backslash or a doubled slash fails here and never
+reaches the point where it would be normalised away.
+
+The same reasoning applies to any future identifier that encodes a path: validate
+its shape against what you issue, rather than scanning it for the part you care
+about.
+
+### Known gap
+
+`MaxFileSizeBytes` is enforced after ASP.NET has already buffered the request, so an
+oversized upload costs the disk and bandwidth before it is refused. Closing it
+properly needs an `IResourceFilter` — the only filter that runs *before* model
+binding — because `[RequestSizeLimit]` takes a compile-time constant and cannot read
+configuration, and raising Kestrel's global limit would loosen every JSON endpoint
+too. There is no rate limiting on the upload endpoint either. Both are worth
+addressing before a public deployment; neither is wired up today.
 
 ---
 
