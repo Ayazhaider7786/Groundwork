@@ -4,11 +4,14 @@ using System.Text.Json.Serialization;
 using backend.Data.Abstractions;
 using backend.Data.Data;
 using backend.Data.Entities;
+using backend.Data.Enums;
 using backend.SeedData;
 using backend.SeedData.Seeders;
 using backend.Services.Model.Auth;
+using backend.Services.Model.Files;
 using backend.Services.Model.SeedData;
 using backend.Services.Services.Auth;
+using backend.Services.Services.Files;
 using backend.Services.Services.SeedData;
 using FluentValidation;
 using FluentValidation.AspNetCore;
@@ -36,6 +39,7 @@ if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey))
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<SeedDataOptions>(builder.Configuration.GetSection(SeedDataOptions.SectionName));
+builder.Services.Configure<FileStorageOptions>(builder.Configuration.GetSection(FileStorageOptions.SectionName));
 
 // ---------------------------------------------------------------- persistence
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -99,6 +103,29 @@ builder.Services.AddScoped<ICurrentUserProvider, CurrentUserProvider>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ISeedDataService, SeedDataService>();
+builder.Services.AddScoped<IFileUploadService, FileUploadService>();
+
+// ---------------------------------------------------------------- file storage
+// The one switch: FileStorage:Provider decides which IFileStorage backs uploads.
+// Adding Azure means writing AzureFileStorage in backend.Services/Services/Files/
+// and adding one arm here — nothing that consumes IFileUploadService changes.
+var fileStorageProvider = builder.Configuration
+    .GetSection(FileStorageOptions.SectionName)
+    .Get<FileStorageOptions>()?.Provider ?? FileStorageProvider.Local;
+
+switch (fileStorageProvider)
+{
+    case FileStorageProvider.Local:
+        builder.Services.AddScoped<IFileStorage, LocalFileStorage>();
+        break;
+
+    default:
+        // Fail at startup rather than at the first upload, and say what is missing.
+        throw new InvalidOperationException(
+            $"{FileStorageOptions.SectionName}:Provider is set to '{fileStorageProvider}', which has no " +
+            "IFileStorage implementation registered. Implement it in " +
+            "backend.Services/Services/Files/ and add it to the switch in Program.cs.");
+}
 
 // ---------------------------------------------------------------- seeders
 builder.Services.AddScoped<RoleSeeder>();
